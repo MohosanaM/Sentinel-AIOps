@@ -6,14 +6,13 @@
 ![Security](https://img.shields.io/badge/Security-AIOps--SOAR-red)
 
 **Lead Researcher:** Mohosana Maymuna  
-**Affiliation:** Zhengzhou University (Ranked 3rd/41 in Software Engineering)  
-**Research Focus:** Cybersecurity & AI-Driven Infrastructure Monitoring.
+**Affiliation:** Zhengzhou University  
+**Project Theme:** AiDevOps & Intelligent Infrastructure Resilience
 
 ---
 
 ## 🔬 Scientific Abstract
-Sentinel-AIOps is a **Research Prototype** evaluating the efficacy of **Heuristic Pattern Recognition** in distributed DevOps environments. By utilizing a decoupled **Hybrid Telemetry Engine**, the system bridges the gap between low-level hardware metrics (CPU/RAM kernel data) and high-level adversarial threat vectors. This project serves as a technical artifact demonstrating **Security Orchestration, Automation, and Response (SOAR)** logic in a mobile-first command center.
-
+Sentinel-AIOps is a research artifact centered on **AiDevOps**—the integration of artificial intelligence into DevOps workflows to automate system health and security. This prototype evaluates the efficacy of **Heuristic Pattern Recognition** in distributed environments. By utilizing a decoupled **Hybrid Telemetry Engine**, the system bridges the gap between low-level hardware metrics and high-level adversarial threat vectors, demonstrating **Security Orchestration, Automation, and Response (SOAR)** logic in a mobile-first command center.
 ---
 
 ## 🚀 Live Command Center (Visual Evidence)
