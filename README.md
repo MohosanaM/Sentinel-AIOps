@@ -13,6 +13,7 @@
 
 ## 🔬 Scientific Abstract
 Sentinel-AIOps is a research artifact centered on **AiDevOps**—the integration of artificial intelligence into DevOps workflows to automate system health and security. This prototype evaluates the efficacy of **Heuristic Pattern Recognition** in distributed environments. By utilizing a decoupled **Hybrid Telemetry Engine**, the system bridges the gap between low-level hardware metrics and high-level adversarial threat vectors, demonstrating **Security Orchestration, Automation, and Response (SOAR)** logic in a mobile-first command center.
+
 ---
 
 ## 🚀 Live Command Center (Visual Evidence)
@@ -36,38 +37,16 @@ Sentinel-AIOps is a research artifact centered on **AiDevOps**—the integration
 
 ---
 
-## 📂 Repository Structure
-```text
-├── core/
-│   ├── sentinel_server.py     # Backend Engine
-│   └── requirements.txt       # Dependencies
-├── mobile/
-│   ├── lib/                   # Flutter Source Code
-│   └── pubspec.yaml           # App Configuration
-└── README.md                  # Project Documentation
+## 🏁 Conclusion & Future Horizons
+The **Sentinel-AIOps** framework represents a successful integration of **Autonomous Telemetry** and **Adversarial Modeling**. By developing a decoupled, full-stack bridge between a Python-based security kernel and a Flutter-driven Command Center, I have demonstrated the technical feasibility of **Real-Time Security Orchestration (SOAR)**.
+
+This project is a testament to my commitment as a **Rank 3rd (out of 41)** Software Engineering student to bridge the gap between high-level AI logic and low-level system security. 
+
+**Future Roadmap:**
+*   **Edge Integration:** Porting the telemetry engine to IoT edge-nodes for distributed network defense.
+*   **LLM Fine-Tuning:** Implementing a localized Llama-3 model for automated "Root Cause Analysis" (RCA).
+*   **Global Impact:** Deploying this framework as an open-source tool for NGOs and educational institutions in emerging economies to secure their digital infrastructure.
 
 ---
-
-## ⚙️ Installation & Reproducibility
-To replicate this research environment, ensure the host machine and the mobile client are on the same local network.
-
-### 1. Initialize Backend (Python)
-```bash
-cd core
-pip install -r requirements.txt
-python sentinel_server.py
-
-### 2. Launch Dashboard (Flutter)
-```bash
-cd mobile
-flutter run```
-
----
-
-## 📜 Future Research Roadmap
-* **ML Integration:** Implementing Scikit-learn for true anomaly detection rather than heuristic matrices.
-* **Encrypted Handshake:** Upgrading to HTTPS/TLS for secure telemetry transit.
-* **Multi-Node Monitoring:** Expanding the kernel extraction to monitor multiple remote servers simultaneously.
-
----
+**"Engineering is not just about building tools; it is about architecting a safer digital future."**
 © 2026 Mohosana Maymuna | Zhengzhou University
