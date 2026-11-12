@@ -9,7 +9,8 @@ import threading
 import time
 import uuid
 from datetime import datetime
-
+from url_analyzer import URLThreatEngine
+url_engine = URLThreatEngine()
 import joblib
 import numpy as np
 import psutil
@@ -242,6 +243,16 @@ def get_threat_stats():
         return jsonify({'error': state['error'] or 'Dataset not loaded'}), 503
     return jsonify(state['threat_stats'])
 
+url_engine = URLThreatEngine()
+
+@app.route('/api/scan-url', methods=['POST'])
+def scan_url():
+    data = request.get_json() or {}
+    url = data.get('url', '').strip()
+    if not url:
+        return jsonify({'error': 'No URL provided'}), 400
+    result = url_engine.evaluate(url)
+    return jsonify(result)
 
 if __name__ == "__main__":
     load_artifact()
