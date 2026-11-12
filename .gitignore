@@ -1,0 +1,27 @@
+# Datasets (large, not ours to redistribute)
+backend/KDD*.txt
+*.csv
+
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Flutter
+frontend/.dart_tool/
+frontend/build/
+frontend/.flutter-plugins*
+frontend/.packages
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Private course files
+docs/private/
