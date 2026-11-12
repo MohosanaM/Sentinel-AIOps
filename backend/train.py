@@ -1,116 +1,99 @@
 """
-Offline training script for Sentinel AIOps intrusion detector.
-Trains a Random Forest on KDDTrain+, evaluates on KDDTest+, and saves
-the serialized pipeline + metrics to backend/sentinel_model.joblib.
+Offline training script for the Sentinel AIOps intrusion detector.
 
-Run once: python train.py
+Trains a Random Forest on NSL-KDD KDDTrain+, evaluates it on the held-out
+KDDTest+ set, and writes:
+  - sentinel_model.joblib   serialized pipeline + metrics + stats (loaded by the API)
+  - metrics.json            the same metrics, human-readable, for the README
+  - replay_sample.csv.gz    small KDDTest+ sample so the demo API can replay
+                            traffic without the full dataset (optional)
+
+Usage (from the backend/ folder, with KDDTrain+.txt and KDDTest+.txt next to it):
+    python train.py
+    python train.py --trees 60 --max-depth 25     # smaller model file
 """
-import glob
-import os
+import argparse
+import json
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 
 import joblib
 import pandas as pd
+import sklearn
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import (accuracy_score, confusion_matrix,
+from sklearn.metrics import (accuracy_score, confusion_matrix, f1_score,
                              precision_recall_fscore_support)
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
-COLUMN_NAMES = [
-    'duration', 'protocol_type', 'service', 'flag', 'src_bytes', 'dst_bytes',
-    'land', 'wrong_fragment', 'urgent', 'hot', 'num_failed_logins',
-    'logged_in', 'num_compromised', 'root_shell', 'su_attempted', 'num_root',
-    'num_file_creations', 'num_shells', 'num_access_files',
-    'num_outbound_cmds', 'is_host_login', 'is_guest_login', 'count',
-    'srv_count', 'serror_rate', 'srv_serror_rate', 'rerror_rate',
-    'srv_rerror_rate', 'same_srv_rate', 'diff_srv_rate',
-    'srv_diff_host_rate', 'dst_host_count', 'dst_host_srv_count',
-    'dst_host_same_srv_rate', 'dst_host_diff_srv_rate',
-    'dst_host_same_src_port_rate', 'dst_host_srv_diff_host_rate',
-    'dst_host_serror_rate', 'dst_host_srv_serror_rate',
-    'dst_host_rerror_rate', 'dst_host_srv_rerror_rate', 'label', 'difficulty'
-]
-CATEGORICAL = ['protocol_type', 'service', 'flag']
-FEATURES = [c for c in COLUMN_NAMES if c not in ('label', 'difficulty')]
-NUMERIC = [c for c in FEATURES if c not in CATEGORICAL]
+from schema import (CATEGORICAL, COLUMN_NAMES, FAMILIES, FEATURES, NUMERIC,
+                    load_nsl_kdd)
 
-ATTACK_FAMILY = {'normal': 'Normal'}
-for _name in ['back', 'land', 'neptune', 'pod', 'smurf', 'teardrop',
-              'mailbomb', 'apache2', 'processtable', 'udpstorm', 'worm']:
-    ATTACK_FAMILY[_name] = 'DoS'
-for _name in ['ipsweep', 'nmap', 'portsweep', 'satan', 'mscan', 'saint']:
-    ATTACK_FAMILY[_name] = 'Probe'
-for _name in ['ftp_write', 'guess_passwd', 'imap', 'multihop', 'phf', 'spy',
-              'warezclient', 'warezmaster', 'sendmail', 'named',
-              'snmpgetattack', 'snmpguess', 'xlock', 'xsnoop', 'httptunnel']:
-    ATTACK_FAMILY[_name] = 'R2L'
-for _name in ['buffer_overflow', 'loadmodule', 'perl', 'rootkit', 'ps',
-              'sqlattack', 'xterm']:
-    ATTACK_FAMILY[_name] = 'U2R'
-
-FAMILIES = ['Normal', 'DoS', 'Probe', 'R2L', 'U2R']
+HERE = Path(__file__).resolve().parent
+WARN_SIZE_MB = 50          # GitHub rejects single files over 100 MB
 
 
-def _read(pattern):
-    files = glob.glob(pattern)
+def find_file(data_dir, pattern):
+    files = sorted(data_dir.glob(pattern))
     if not files:
-        raise FileNotFoundError(f"No file matching '{pattern}' in {os.getcwd()}")
-    df = pd.read_csv(files[0], names=COLUMN_NAMES)
-    df['family'] = df['label'].map(ATTACK_FAMILY).fillna('R2L')
-    return df
+        raise FileNotFoundError(f"No file matching '{pattern}' in {data_dir}")
+    return files[0]
 
 
-def main():
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    print("Loading NSL-KDD datasets...")
-    train_df, test_df = _read('KDDTrain*'), _read('KDDTest*')
-
+def build_model(trees, max_depth, seed):
     pre = ColumnTransformer([
         ('cat', OneHotEncoder(handle_unknown='ignore'), CATEGORICAL),
         ('num', 'passthrough', NUMERIC),
     ])
-    model = Pipeline([
+    return Pipeline([
         ('pre', pre),
         ('rf', RandomForestClassifier(
-            n_estimators=100, n_jobs=-1, random_state=42,
-            class_weight='balanced_subsample')),
+            n_estimators=trees, max_depth=max_depth, n_jobs=-1,
+            random_state=seed, class_weight='balanced_subsample')),
     ])
 
-    print("Training Random Forest on KDDTrain+...")
-    t0 = time.time()
-    model.fit(train_df[FEATURES], train_df['family'])
-    train_secs = time.time() - t0
 
-    print("Evaluating on unseen KDDTest+...")
+def top_features(model, n=8):
+    """Feature importances, with one-hot columns summed back to their field."""
+    names = model.named_steps['pre'].get_feature_names_out()
+    imps = model.named_steps['rf'].feature_importances_
+    agg = {}
+    for name, value in zip(names, imps):
+        raw = name.split('__', 1)[1]
+        parent = next((c for c in CATEGORICAL if raw.startswith(c + '_')), raw)
+        agg[parent] = agg.get(parent, 0.0) + float(value)
+    return sorted(agg.items(), key=lambda kv: -kv[1])[:n]
+
+
+def evaluate(model, test_df, train_df, train_secs, args):
     pred = model.predict(test_df[FEATURES])
     truth = test_df['family']
 
     acc = accuracy_score(truth, pred)
+    macro_f1 = f1_score(truth, pred, labels=FAMILIES, average='macro',
+                        zero_division=0)
+
+    # Binary view: attack vs normal
     b_true = (truth != 'Normal').astype(int)
     b_pred = (pd.Series(pred, index=truth.index) != 'Normal').astype(int)
     bp, br, bf, _ = precision_recall_fscore_support(
         b_true, b_pred, average='binary', zero_division=0)
+
+    # Per-family view
     p, r, f, s = precision_recall_fscore_support(
         truth, pred, labels=FAMILIES, zero_division=0)
     cm = confusion_matrix(truth, pred, labels=FAMILIES)
 
-    names = model.named_steps['pre'].get_feature_names_out()
-    imps = model.named_steps['rf'].feature_importances_
-    agg = {}
-    for n, v in zip(names, imps):
-        raw = n.split('__', 1)[1]
-        parent = next((c for c in CATEGORICAL if raw.startswith(c + '_')), raw)
-        agg[parent] = agg.get(parent, 0.0) + float(v)
-    top_features = sorted(agg.items(), key=lambda kv: -kv[1])[:8]
-
-    metrics = {
-        'model': 'RandomForest (100 trees, one-hot + 41 features)',
+    return {
+        'model': (f'RandomForest ({args.trees} trees, '
+                  f'max_depth={args.max_depth}, one-hot + 41 features)'),
         'train_records': int(len(train_df)),
         'test_records': int(len(test_df)),
         'train_seconds': round(train_secs, 1),
         'accuracy_5class': round(float(acc), 4),
+        'macro_f1_5class': round(float(macro_f1), 4),
         'binary': {
             'precision': round(float(bp), 4),
             'recall': round(float(br), 4),
@@ -124,15 +107,17 @@ def main():
         ],
         'confusion_matrix': {'labels': FAMILIES, 'matrix': cm.tolist()},
         'top_features': [{'feature': k, 'importance': round(v, 4)}
-                         for k, v in top_features],
-        'note': 'Evaluated on KDDTest+, which contains attack types '
-                'absent from training, so scores are lower than on '
-                'random splits. R2L/U2R are rare in training data.',
+                         for k, v in top_features(model)],
+        'note': 'Evaluated on KDDTest+, which contains attack types absent '
+                'from training, so scores are lower than on random splits. '
+                'R2L/U2R are rare in training data and have low recall.',
     }
 
+
+def threat_stats_for(train_df):
     attacks = train_df[train_df['label'] != 'normal']
     total, n_att = len(train_df), len(attacks)
-    threat_stats = {
+    return {
         'threats': attacks['label'].value_counts().to_dict(),
         'families': train_df['family'].value_counts().to_dict(),
         'summary': {
@@ -143,17 +128,68 @@ def main():
         },
     }
 
-    artifact_path = 'sentinel_model.joblib'
+
+def parse_args():
+    ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
+    ap.add_argument('--data-dir', type=Path, default=HERE,
+                    help='folder containing KDDTrain+.txt and KDDTest+.txt')
+    ap.add_argument('--out-dir', type=Path, default=HERE,
+                    help='where to write the model and metrics')
+    ap.add_argument('--trees', type=int, default=100)
+    ap.add_argument('--max-depth', type=int, default=None,
+                    help='limit tree depth to shrink the model file')
+    ap.add_argument('--seed', type=int, default=42)
+    ap.add_argument('--replay-rows', type=int, default=2000,
+                    help='rows of KDDTest+ to save for demo replay (0 = none)')
+    return ap.parse_args()
+
+
+def main():
+    args = parse_args()
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+
+    print("Loading NSL-KDD ...")
+    train_df = load_nsl_kdd(find_file(args.data_dir, 'KDDTrain*'))
+    test_df = load_nsl_kdd(find_file(args.data_dir, 'KDDTest*'))
+
+    model = build_model(args.trees, args.max_depth, args.seed)
+
+    print("Training on KDDTrain+ ...")
+    t0 = time.time()
+    model.fit(train_df[FEATURES], train_df['family'])
+    train_secs = time.time() - t0
+
+    print("Evaluating on unseen KDDTest+ ...")
+    metrics = evaluate(model, test_df, train_df, train_secs, args)
+
+    artifact = args.out_dir / 'sentinel_model.joblib'
     joblib.dump({
         'model': model,
         'metrics': metrics,
-        'threat_stats': threat_stats,
+        'threat_stats': threat_stats_for(train_df),
         'features': FEATURES,
-    }, artifact_path, compress=3)
+        # A joblib file only loads reliably on the same scikit-learn version.
+        'sklearn_version': sklearn.__version__,
+        'trained_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+    }, artifact, compress=3)
 
-    size_mb = os.path.getsize(artifact_path) / (1024 * 1024)
-    print(f"Saved {artifact_path} ({size_mb:.2f} MB) in {train_secs:.1f}s")
-    print(f"5-class accuracy: {acc:.4f} | Binary recall: {br:.4f}")
+    with open(args.out_dir / 'metrics.json', 'w', encoding='utf-8') as fh:
+        json.dump(metrics, fh, indent=2)
+
+    if args.replay_rows > 0:
+        sample = test_df[COLUMN_NAMES + ['family']].sample(
+            min(args.replay_rows, len(test_df)), random_state=args.seed)
+        sample.to_csv(args.out_dir / 'replay_sample.csv.gz', index=False)
+
+    size_mb = artifact.stat().st_size / (1024 * 1024)
+    print(f"Saved {artifact.name} ({size_mb:.1f} MB), metrics.json"
+          f"{', replay_sample.csv.gz' if args.replay_rows > 0 else ''}")
+    if size_mb > WARN_SIZE_MB:
+        print(f"WARNING: model is over {WARN_SIZE_MB} MB. Retrain with "
+              f"--trees 60 --max-depth 25 before committing to GitHub.")
+    print(f"5-class accuracy {metrics['accuracy_5class']:.4f} | "
+          f"macro-F1 {metrics['macro_f1_5class']:.4f} | "
+          f"binary recall {metrics['binary']['recall']:.4f}")
 
 
 if __name__ == '__main__':

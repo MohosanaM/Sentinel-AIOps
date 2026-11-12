@@ -1,34 +1,74 @@
 """
-Sentinel AIOps backend (Inference Server)
----------------------------------------
-Loads pre-trained model artifact (sentinel_model.joblib) and serves the API.
-Replays KDDTest+ records as a simulated traffic feed.
+Sentinel AIOps backend (inference server)
+-----------------------------------------
+Loads the pre-trained model (sentinel_model.joblib, built by train.py) and
+serves the API. Traffic is REPLAYED from NSL-KDD test records; nothing here
+sniffs a live network.
+
+Local:       python sentinel_bridge.py
+Production:  gunicorn -w 1 --threads 4 -b 0.0.0.0:$PORT sentinel_bridge:app
+             (one worker: incidents and the blocklist live in memory)
+
+Environment variables
+  PORT              listen port (default 5000)
+  SENTINEL_HOST     bind address for `python sentinel_bridge.py` (default 127.0.0.1)
+  ALLOWED_ORIGINS   comma-separated exact front-end origins, e.g.
+                    https://yourname.github.io  (localhost is always allowed)
+  TRUST_PROXY       set to 1 when behind a reverse proxy (Render, Fly, Railway)
 """
+import logging
 import os
 import threading
-import time
 import uuid
+from collections import OrderedDict
 from datetime import datetime
-from url_analyzer import URLThreatEngine
-url_engine = URLThreatEngine()
+from pathlib import Path
+
 import joblib
 import numpy as np
+import pandas as pd
 import psutil
+import sklearn
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+from schema import load_nsl_kdd
+from url_analyzer import URLThreatEngine
+
+HERE = Path(__file__).resolve().parent
+MAX_INCIDENTS = 500        # oldest incidents are dropped beyond this
+MAX_URL_LEN = 2048
+
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s %(levelname)s %(message)s')
+log = logging.getLogger('sentinel')
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": [
-    r"http://localhost:\d+", r"http://127\.0\.0\.1:\d+", r"https://*"]}})
+if os.environ.get('TRUST_PROXY') == '1':
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
 
-# Global application state
+# CORS: exact origins only. The localhost patterns end in $ so that
+# "http://localhost:5000.evil.com" cannot match.
+_extra = [o.strip() for o in os.environ.get('ALLOWED_ORIGINS', '').split(',')
+          if o.strip()]
+CORS(app, resources={r"/api/*": {"origins": [
+    r"http://localhost:\d+$", r"http://127\.0\.0\.1:\d+$", *_extra]}})
+
+limiter = Limiter(get_remote_address, app=app, storage_uri='memory://')
+
+url_engine = URLThreatEngine()
+
 state = {
     'ready': False,
     'error': None,
+    'warning': None,
     'model': None,
     'metrics': None,
     'threat_stats': None,
-    'test_df': None,
+    'replay_df': None,
     'features': None,
 }
 
@@ -60,72 +100,49 @@ PLAYBOOK = {
 }
 
 
+def _load_replay():
+    """Small committed sample first; full KDDTest+ if it is present."""
+    sample = HERE / 'replay_sample.csv.gz'
+    if sample.exists():
+        return pd.read_csv(sample)
+    full = sorted(HERE.glob('KDDTest*'))
+    if full:
+        return load_nsl_kdd(full[0])
+    raise FileNotFoundError(
+        "No replay data: expected replay_sample.csv.gz (made by train.py) "
+        "or a KDDTest* file next to this script.")
+
+
 def load_artifact():
     try:
-        os.chdir(os.path.dirname(os.path.abspath(__file__)))
-        artifact_path = 'sentinel_model.joblib'
-        if not os.path.exists(artifact_path):
-            raise FileNotFoundError(
-                f"'{artifact_path}' not found. Run 'python train.py' first.")
+        path = HERE / 'sentinel_model.joblib'
+        if not path.exists():
+            raise FileNotFoundError(f"'{path.name}' not found. Run train.py first.")
+        log.info("Loading model artifact %s", path.name)
+        data = joblib.load(path)   # only load files you trained yourself
 
-        print(f"Loading pre-trained model artifact from {artifact_path}...")
-        data = joblib.load(artifact_path)
-        
-        # Also need KDDTest+ for live traffic replay
-        import glob
-        import pandas as pd
-        test_files = glob.glob('KDDTest*')
-        if not test_files:
-            raise FileNotFoundError("No KDDTest* file found next to bridge.")
-        
-        COLUMN_NAMES = [
-            'duration', 'protocol_type', 'service', 'flag', 'src_bytes', 'dst_bytes',
-            'land', 'wrong_fragment', 'urgent', 'hot', 'num_failed_logins',
-            'logged_in', 'num_compromised', 'root_shell', 'su_attempted', 'num_root',
-            'num_file_creations', 'num_shells', 'num_access_files',
-            'num_outbound_cmds', 'is_host_login', 'is_guest_login', 'count',
-            'srv_count', 'serror_rate', 'srv_serror_rate', 'rerror_rate',
-            'srv_rerror_rate', 'same_srv_rate', 'diff_srv_rate',
-            'srv_diff_host_rate', 'dst_host_count', 'dst_host_srv_count',
-            'dst_host_same_srv_rate', 'dst_host_diff_srv_rate',
-            'dst_host_same_src_port_rate', 'dst_host_srv_diff_host_rate',
-            'dst_host_serror_rate', 'dst_host_srv_serror_rate',
-            'dst_host_rerror_rate', 'dst_host_srv_rerror_rate', 'label', 'difficulty'
-        ]
-        ATTACK_FAMILY = {'normal': 'Normal'}
-        for _name in ['back', 'land', 'neptune', 'pod', 'smurf', 'teardrop',
-                      'mailbomb', 'apache2', 'processtable', 'udpstorm', 'worm']:
-            ATTACK_FAMILY[_name] = 'DoS'
-        for _name in ['ipsweep', 'nmap', 'portsweep', 'satan', 'mscan', 'saint']:
-            ATTACK_FAMILY[_name] = 'Probe'
-        for _name in ['ftp_write', 'guess_passwd', 'imap', 'multihop', 'phf', 'spy',
-                      'warezclient', 'warezmaster', 'sendmail', 'named',
-                      'snmpgetattack', 'snmpguess', 'xlock', 'xsnoop', 'httptunnel']:
-            ATTACK_FAMILY[_name] = 'R2L'
-        for _name in ['buffer_overflow', 'loadmodule', 'perl', 'rootkit', 'ps',
-                      'sqlattack', 'xterm']:
-            ATTACK_FAMILY[_name] = 'U2R'
+        trained_with = data.get('sklearn_version')
+        if trained_with and trained_with != sklearn.__version__:
+            state['warning'] = (f"Model trained with scikit-learn {trained_with}, "
+                                f"running {sklearn.__version__}. Retrain if "
+                                f"predictions look wrong.")
+            log.warning(state['warning'])
 
-        test_df = pd.read_csv(test_files[0], names=COLUMN_NAMES)
-        test_df['family'] = test_df['label'].map(ATTACK_FAMILY).fillna('R2L')
-
-        state['model'] = data['model']
-        state['metrics'] = data['metrics']
-        state['threat_stats'] = data['threat_stats']
-        state['features'] = data['features']
-        state['test_df'] = test_df
-        state['ready'] = True
-        print("Sentinel Bridge ready to serve predictions.")
+        state.update(model=data['model'], metrics=data['metrics'],
+                     threat_stats=data['threat_stats'],
+                     features=data['features'], replay_df=_load_replay(),
+                     ready=True)
+        log.info("Ready. Replay pool: %d records", len(state['replay_df']))
     except Exception as e:
         state['error'] = str(e)
-        print(f"ERROR loading model: {e}")
+        log.error("Failed to load model: %s", e)
 
 
 lock = threading.Lock()
-incidents = {}
-blocklist = {}
+incidents = OrderedDict()   # id -> incident dict, capped at MAX_INCIDENTS
+blocklist = {}              # ip -> {'since', 'incident', 'action'}
 session = {'scanned': 0, 'flagged': 0, 'true_pos': 0, 'false_pos': 0}
-psutil.cpu_percent(interval=None)
+psutil.cpu_percent(interval=None)   # prime so later calls do not block
 
 
 def _fake_ip():
@@ -139,10 +156,12 @@ def _now():
 
 @app.route('/api/health')
 def health():
-    return jsonify({'ready': state['ready'], 'error': state['error']})
+    return jsonify({'ready': state['ready'], 'error': state['error'],
+                    'warning': state['warning']})
 
 
 def _system_status():
+    """Stats of the machine running this server, not of a monitored network."""
     cpu = psutil.cpu_percent(interval=None)
     ram = psutil.virtual_memory().percent
     level = 'CRITICAL' if cpu > 90 else 'WARNING' if cpu > 80 else 'INFO'
@@ -151,7 +170,8 @@ def _system_status():
         'WARNING': 'High CPU load - monitor closely',
         'CRITICAL': 'Sustained CPU saturation - investigate running processes',
     }[level]
-    return {'level': level, 'cpu': cpu, 'ram': ram, 'message': msg, 'time': _now()}
+    return {'level': level, 'cpu': cpu, 'ram': ram, 'message': msg,
+            'time': _now()}
 
 
 @app.route('/api/alerts')
@@ -159,7 +179,8 @@ def get_alerts():
     if not state['ready']:
         return jsonify({'error': state['error'] or 'Model still loading'}), 503
 
-    batch = state['test_df'].sample(30)
+    pool = state['replay_df']
+    batch = pool.sample(min(30, len(pool)))
     proba = state['model'].predict_proba(batch[state['features']])
     classes = list(state['model'].classes_)
     preds = [classes[i] for i in proba.argmax(axis=1)]
@@ -167,25 +188,24 @@ def get_alerts():
 
     found = []
     with lock:
-        for (idx, row), pred, conf in zip(batch.iterrows(), preds, confs):
+        for (_, row), pred, conf in zip(batch.iterrows(), preds, confs):
             session['scanned'] += 1
             if pred == 'Normal':
                 continue
             session['flagged'] += 1
             truth_family = row['family']
-            correct = truth_family != 'Normal'
-            session['true_pos' if correct else 'false_pos'] += 1
+            session['true_pos' if truth_family != 'Normal' else 'false_pos'] += 1
 
-            pb = PLAYBOOK.get(pred, PLAYBOOK['Probe'])
+            pb = PLAYBOOK[pred]
             sev = pb['severity']
             if conf < 0.6 and sev == 'CRITICAL':
-                sev = 'WARNING'
+                sev = 'WARNING'            # low confidence -> downgrade
             inc = {
                 'id': uuid.uuid4().hex[:8],
                 'severity': sev,
                 'family': pred,
                 'confidence': round(float(conf), 3),
-                'source_ip': _fake_ip(),
+                'source_ip': _fake_ip(),   # simulated; dataset has no IPs
                 'time': _now(),
                 'status': 'OPEN',
                 'recommended_action': pb['action'],
@@ -199,25 +219,32 @@ def get_alerts():
                     'connections_2s': int(row['count']),
                     'serror_rate': float(row['serror_rate']),
                 },
+                # Replay ground truth, shown so the demo is transparent
                 'ground_truth': row['label'],
                 'ground_truth_family': truth_family,
                 'prediction_correct': bool(truth_family == pred),
             }
             incidents[inc['id']] = inc
+            while len(incidents) > MAX_INCIDENTS:
+                incidents.popitem(last=False)
             found.append(inc)
+
+        blocked = len(blocklist)
+        sess = dict(session)
 
     found.sort(key=lambda i: -i['confidence'])
     return jsonify({
         'mode': 'replay',
         'system': _system_status(),
         'alerts': found[:6],
-        'session': dict(session),
-        'blocked_count': len(blocklist),
+        'session': sess,
+        'blocked_count': blocked,
     })
 
 
 @app.route('/api/incidents/<incident_id>/respond', methods=['POST'])
 def respond(incident_id):
+    """Simulated SOAR action: records the response and updates a blocklist."""
     with lock:
         inc = incidents.get(incident_id)
         if inc is None:
@@ -225,9 +252,18 @@ def respond(incident_id):
         if inc['status'] != 'OPEN':
             return jsonify(inc)
         inc['status'] = 'MITIGATED'
+        inc['mitigated_at'] = _now()
         blocklist[inc['source_ip']] = {
-            'since': _now(), 'incident': incident_id, 'action': inc['recommended_action']}
+            'since': _now(), 'incident': incident_id,
+            'action': inc['recommended_action']}
         return jsonify({'incident': inc, 'blocked_count': len(blocklist)})
+
+
+@app.route('/api/blocklist')
+def get_blocklist():
+    with lock:
+        return jsonify({'blocked': [{'ip': ip, **v}
+                                    for ip, v in blocklist.items()]})
 
 
 @app.route('/api/metrics')
@@ -240,21 +276,31 @@ def get_metrics():
 @app.route('/api/threat-stats')
 def get_threat_stats():
     if not state['ready']:
-        return jsonify({'error': state['error'] or 'Dataset not loaded'}), 503
+        return jsonify({'error': state['error'] or 'Model still loading'}), 503
     return jsonify(state['threat_stats'])
 
-url_engine = URLThreatEngine()
 
 @app.route('/api/scan-url', methods=['POST'])
+@limiter.limit('20 per minute')
 def scan_url():
-    data = request.get_json() or {}
-    url = data.get('url', '').strip()
-    if not url:
-        return jsonify({'error': 'No URL provided'}), 400
-    result = url_engine.evaluate(url)
-    return jsonify(result)
+    data = request.get_json(silent=True)
+    url = data.get('url') if isinstance(data, dict) else None
+    if not isinstance(url, str) or not url.strip():
+        return jsonify({'error': 'Send JSON like {"url": "https://..."}'}), 400
+    url = url.strip()
+    if len(url) > MAX_URL_LEN:
+        return jsonify({'error': f'URL longer than {MAX_URL_LEN} characters'}), 400
+    try:
+        return jsonify(url_engine.evaluate(url))
+    except Exception:
+        log.exception("URL scan failed")
+        return jsonify({'error': 'Scan failed'}), 500
+
+
+# Load at import time so gunicorn (which never runs the block below) works.
+load_artifact()
 
 if __name__ == "__main__":
-    load_artifact()
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
+    app.run(host=os.environ.get('SENTINEL_HOST', '127.0.0.1'),
+            port=int(os.environ.get('PORT', 5000)),
+            debug=False, threaded=True)

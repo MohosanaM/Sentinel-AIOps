@@ -1,0 +1,131 @@
+{
+  "model": "RandomForest (100 trees, max_depth=None, one-hot + 41 features)",
+  "train_records": 125973,
+  "test_records": 22544,
+  "train_seconds": 2.6,
+  "accuracy_5class": 0.7394,
+  "macro_f1_5class": 0.4751,
+  "binary": {
+    "precision": 0.9666,
+    "recall": 0.5775,
+    "f1": 0.723
+  },
+  "per_family": [
+    {
+      "family": "Normal",
+      "precision": 0.6355,
+      "recall": 0.9736,
+      "f1": 0.7691,
+      "support": 9711
+    },
+    {
+      "family": "DoS",
+      "precision": 0.9614,
+      "recall": 0.7709,
+      "f1": 0.8557,
+      "support": 7460
+    },
+    {
+      "family": "Probe",
+      "precision": 0.8676,
+      "recall": 0.5927,
+      "f1": 0.7043,
+      "support": 2421
+    },
+    {
+      "family": "R2L",
+      "precision": 0.9286,
+      "recall": 0.009,
+      "f1": 0.0179,
+      "support": 2885
+    },
+    {
+      "family": "U2R",
+      "precision": 0.3333,
+      "recall": 0.0149,
+      "f1": 0.0286,
+      "support": 67
+    }
+  ],
+  "confusion_matrix": {
+    "labels": [
+      "Normal",
+      "DoS",
+      "Probe",
+      "R2L",
+      "U2R"
+    ],
+    "matrix": [
+      [
+        9455,
+        67,
+        188,
+        0,
+        1
+      ],
+      [
+        1681,
+        5751,
+        28,
+        0,
+        0
+      ],
+      [
+        822,
+        164,
+        1435,
+        0,
+        0
+      ],
+      [
+        2855,
+        0,
+        3,
+        26,
+        1
+      ],
+      [
+        64,
+        0,
+        0,
+        2,
+        1
+      ]
+    ]
+  },
+  "top_features": [
+    {
+      "feature": "service",
+      "importance": 0.1264
+    },
+    {
+      "feature": "src_bytes",
+      "importance": 0.0843
+    },
+    {
+      "feature": "dst_bytes",
+      "importance": 0.0715
+    },
+    {
+      "feature": "dst_host_srv_count",
+      "importance": 0.0678
+    },
+    {
+      "feature": "flag",
+      "importance": 0.0514
+    },
+    {
+      "feature": "logged_in",
+      "importance": 0.0438
+    },
+    {
+      "feature": "srv_count",
+      "importance": 0.0427
+    },
+    {
+      "feature": "dst_host_serror_rate",
+      "importance": 0.0401
+    }
+  ],
+  "note": "Evaluated on KDDTest+, which contains attack types absent from training, so scores are lower than on random splits. R2L/U2R are rare in training data and have low recall."
+}
