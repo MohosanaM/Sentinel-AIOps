@@ -114,7 +114,7 @@ class URLThreatEngine:
 
     def _query_urlhaus(self, url: str) -> dict:
         try:
-            resp = requests.post(URLHAUS_API, data={'url': url}, timeout=4)
+            resp = requests.post(URLHAUS_API, data={'url': url}, timeout=2)
             if resp.status_code == 200:
                 payload = resp.json()
                 if payload.get('query_status') == 'ok':
@@ -125,7 +125,7 @@ class URLThreatEngine:
                     }
             return {'listed': False, 'threat': None, 'tags': []}
         except Exception:
-            return {'listed': False, 'threat': 'lookup_unavailable', 'tags': []}
+            return {'listed': False, 'threat': None, 'tags': []}
 
     def evaluate(self, url: str) -> dict:
         feats = extract_url_features(url)
