@@ -25,3 +25,4 @@ Thumbs.db
 
 # Private course files
 docs/private/
+backend/url_model.joblib
