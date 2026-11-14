@@ -81,6 +81,37 @@ def extract_url_features(url):
     }
 
 
+def extract_host_features(url):
+    """Hostname-only features for the ML model.
+
+    Path, query and scheme are deliberately ignored, and a leading 'www.' is
+    removed: in the PhiUSIIL training data those are dataset artifacts (almost
+    every legitimate URL is a bare https://www. home page), not real signals.
+    """
+    raw = url.strip()
+    if not raw.startswith(('http://', 'https://')):
+        raw = 'http://' + raw
+    host = (urlparse(raw).hostname or '').lower()      # may raise ValueError
+    if host.startswith('www.'):
+        host = host[4:]
+    labels = host.split('.') if host else ['']
+    tld = labels[-1] if len(labels) > 1 else ''
+    digits = sum(c.isdigit() for c in host)
+    return {
+        'host_length': len(host),
+        'dot_count': host.count('.'),
+        'hyphen_count': host.count('-'),
+        'digit_count': digits,
+        'digit_ratio': round(digits / max(len(host), 1), 3),
+        'entropy': round(_entropy(host), 3),
+        'has_ip': int(bool(re.match(r'^\d{1,3}(\.\d{1,3}){3}$', host))),
+        'suspicious_tld': int(('.' + tld) in SUSPICIOUS_TLDS),
+        'punycode': int('xn--' in host),
+        'tld_length': len(tld),
+        'longest_label': max(len(label) for label in labels),
+    }
+
+
 def heuristic_score(f):
     """Return (score 0-100, list of reasons)."""
     score, reasons = 0, []
@@ -137,7 +168,7 @@ class URLThreatEngine:
                 return {'status': 'listed',
                         'threat': body.get('threat') or 'malware_download',
                         'tags': body.get('tags') or []}
-            if qs in ('no_results', 'invalid_url'):
+            if qs == 'no_results':
                 return {'status': 'not_listed', 'threat': None, 'tags': []}
             return {'status': 'unavailable', 'threat': None, 'tags': []}
         except (requests.RequestException, ValueError):
