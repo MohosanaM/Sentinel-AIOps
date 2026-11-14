@@ -35,7 +35,8 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final String _baseUrl = 'http://127.0.0.1:5000';
+  final String _baseUrl = const String.fromEnvironment('API_BASE',
+      defaultValue: 'http://127.0.0.1:5000');
   bool _loading = false;
   Map<String, dynamic>? _dashboardData;
   String? _error;
@@ -101,7 +102,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         });
       } else {
         setState(() {
-          _scanError = 'Scan failed (Code ${response.statusCode})';
+          _scanError = response.statusCode == 429
+              ? 'Too many scans. Wait a minute and try again.'
+              : 'Scan failed (Code ${response.statusCode})';
           _scanningUrl = false;
         });
       }
@@ -111,6 +114,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _scanningUrl = false;
       });
     }
+  }
+
+  Color _scanColor() {
+    final v = _scanResult?['verdict'];
+    if (v == 'SUSPICIOUS') return Colors.redAccent;
+    if (v == 'UNKNOWN') return Colors.amberAccent;
+    return Colors.greenAccent;
+  }
+
+  IconData _scanIcon() {
+    final v = _scanResult?['verdict'];
+    if (v == 'SUSPICIOUS') return Icons.warning_amber_rounded;
+    if (v == 'UNKNOWN') return Icons.help_outline;
+    return Icons.check_circle_outline;
   }
 
   @override
@@ -161,7 +178,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      'Analyze links using lexical structure heuristics, a trained Random Forest model, and live URLhaus threat intelligence.',
+                      'Checks a link with rule-based heuristics and the URLhaus malware-URL list. A hit means likely malicious. No hit is not a guarantee of safety.',
                       style: TextStyle(color: Colors.white70, fontSize: 13),
                     ),
                     const SizedBox(height: 16),
@@ -223,9 +240,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           color: const Color(0xFF0F172A),
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                            color: _scanResult!['is_suspicious']
-                                ? Colors.redAccent
-                                : Colors.greenAccent,
+                            color: _scanColor(),
                             width: 1.5,
                           ),
                         ),
@@ -238,28 +253,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 Row(
                                   children: [
                                     Icon(
-                                      _scanResult!['is_suspicious']
-                                          ? Icons.warning_amber_rounded
-                                          : Icons.check_circle_outline,
-                                      color: _scanResult!['is_suspicious']
-                                          ? Colors.redAccent
-                                          : Colors.greenAccent,
+                                      _scanIcon(),
+                                      color: _scanColor(),
                                     ),
                                     const SizedBox(width: 8),
                                     Text(
-                                      'Verdict: ${_scanResult!['verdict']}',
+                                      '${_scanResult!['verdict_label'] ?? _scanResult!['verdict']}',
                                       style: TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.bold,
-                                        color: _scanResult!['is_suspicious']
-                                            ? Colors.redAccent
-                                            : Colors.greenAccent,
+                                        color: _scanColor(),
                                       ),
                                     ),
                                   ],
                                 ),
                                 Text(
-                                  'Risk Score: ${_scanResult!['risk_score']}%',
+                                  'Heuristic risk: ${_scanResult!['risk_score']}/100',
                                   style: const TextStyle(
                                       fontWeight: FontWeight.bold),
                                 ),
@@ -335,7 +344,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       Colors.orange),
                   const SizedBox(width: 16),
                   _statCard(
-                      'System CPU',
+                      'Server CPU',
                       '${_dashboardData!['system']['cpu']}%',
                       Icons.memory,
                       Colors.cyan),
@@ -370,7 +379,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         style: const TextStyle(fontSize: 12),
                       ),
                       trailing: Text(
-                        '${(alert['confidence'] * 100).toStringAsFixed(1)}% Conf',
+                        '${(alert['confidence'] * 100).toStringAsFixed(1)}% model confidence',
                         style: const TextStyle(
                             fontWeight: FontWeight.bold, color: Colors.cyan),
                       ),
