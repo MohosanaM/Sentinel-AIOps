@@ -1,0 +1,129 @@
+{
+  "dataset": "PhiUSIIL Phishing URL Dataset (Prasad & Chandra, 2024), UCI, CC BY 4.0",
+  "urls_used": 235370,
+  "phishing_share": 0.4271,
+  "features": [
+    "url_length",
+    "hostname_length",
+    "dot_count",
+    "hyphen_count",
+    "at_symbol",
+    "double_slash_in_path",
+    "has_ip_address",
+    "is_https",
+    "suspicious_tld",
+    "punycode",
+    "suspicious_word_count",
+    "hostname_entropy"
+  ],
+  "model": "RandomForest (100 trees, max_depth=18)",
+  "random_split": {
+    "test_urls": 47074,
+    "accuracy": 0.9791,
+    "phishing_precision": 0.99,
+    "phishing_recall": 0.9609,
+    "phishing_f1": 0.9752,
+    "roc_auc": 0.9965,
+    "false_positive_rate": 0.0072,
+    "confusion": {
+      "tn": 26775,
+      "fp": 195,
+      "fn": 787,
+      "tp": 19317
+    }
+  },
+  "grouped_split": {
+    "test_urls": 52635,
+    "accuracy": 0.955,
+    "phishing_precision": 0.9931,
+    "phishing_recall": 0.9143,
+    "phishing_f1": 0.9521,
+    "roc_auc": 0.9954,
+    "false_positive_rate": 0.0061,
+    "confusion": {
+      "tn": 26719,
+      "fp": 163,
+      "fn": 2208,
+      "tp": 23545
+    },
+    "train_domains": 138748,
+    "test_domains": 34687
+  },
+  "top_features": [
+    {
+      "feature": "is_https",
+      "importance": 0.433
+    },
+    {
+      "feature": "url_length",
+      "importance": 0.2354
+    },
+    {
+      "feature": "hostname_length",
+      "importance": 0.0921
+    },
+    {
+      "feature": "hostname_entropy",
+      "importance": 0.0888
+    },
+    {
+      "feature": "dot_count",
+      "importance": 0.0743
+    },
+    {
+      "feature": "hyphen_count",
+      "importance": 0.0451
+    },
+    {
+      "feature": "suspicious_tld",
+      "importance": 0.0239
+    },
+    {
+      "feature": "suspicious_word_count",
+      "importance": 0.0065
+    }
+  ],
+  "sanity_check": [
+    {
+      "kind": "legit",
+      "url": "https://www.youtube.com/watch?v=b_HE9-17rIE&t=135s",
+      "p_phishing": 0.954
+    },
+    {
+      "kind": "legit",
+      "url": "https://github.com/pallets/flask/issues/1234",
+      "p_phishing": 0.971
+    },
+    {
+      "kind": "legit",
+      "url": "https://en.wikipedia.org/wiki/Random_forest",
+      "p_phishing": 0.95
+    },
+    {
+      "kind": "legit",
+      "url": "https://www.google.com/search?q=weather+osaka",
+      "p_phishing": 0.933
+    },
+    {
+      "kind": "legit",
+      "url": "https://www.zju.edu.cn/",
+      "p_phishing": 0.12
+    },
+    {
+      "kind": "phish-style",
+      "url": "http://192.168.1.5/login@secure-update.tk/verify",
+      "p_phishing": 1.0
+    },
+    {
+      "kind": "phish-style",
+      "url": "http://paypal-secure-login.verify-account.xyz/signin",
+      "p_phishing": 1.0
+    },
+    {
+      "kind": "phish-style",
+      "url": "http://secure-bank-update.top/account/confirm",
+      "p_phishing": 1.0
+    }
+  ],
+  "note": "Quote the grouped_split numbers. The random split is optimistic because the same website can appear in train and test. PhiUSIIL has its own biases (for example, its legitimate URLs are mostly short home pages), so results here do not guarantee performance on real-world links."
+}
