@@ -292,6 +292,8 @@ def scan_url():
         return jsonify({'error': f'URL longer than {MAX_URL_LEN} characters'}), 400
     try:
         return jsonify(url_engine.evaluate(url))
+    except ValueError:
+        return jsonify({'error': 'That does not look like a valid URL'}), 400
     except Exception:
         log.exception("URL scan failed")
         return jsonify({'error': 'Scan failed'}), 500
