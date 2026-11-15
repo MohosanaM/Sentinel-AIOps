@@ -7,12 +7,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Dependencies first, so this layer is cached until requirements.txt changes.
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Only what the API needs at runtime: no datasets, tests or .env files.
-COPY schema.py url_analyzer.py sentinel_bridge.py ./
-COPY sentinel_model.joblib replay_sample.csv.gz ./
+# Copy backend code and assets
+COPY backend/schema.py backend/url_analyzer.py backend/sentinel_bridge.py ./
+COPY backend/sentinel_model.joblib backend/replay_sample.csv.gz ./
+
+# Copy the built Flutter web files into ./static so Flask can serve them at root
+COPY frontend/build/web ./static
 
 RUN useradd --create-home appuser
 USER appuser
