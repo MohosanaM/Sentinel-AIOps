@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 import psutil
 import sklearn
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -37,14 +37,6 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from schema import load_nsl_kdd
 from url_analyzer import URLThreatEngine
-
-# Define frontend directory and initialize Flask ONCE with static folder support
-FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'frontend', 'build', 'web'))
-app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path='')
-
-@app.route('/')
-def serve_frontend():
-    return send_from_directory(FRONTEND_DIR, 'index.html')
 
 HERE = Path(__file__).resolve().parent
 MAX_INCIDENTS = 500        # oldest incidents are dropped beyond this
@@ -54,6 +46,7 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
 log = logging.getLogger('sentinel')
 
+app = Flask(__name__)
 if os.environ.get('TRUST_PROXY') == '1':
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
 
