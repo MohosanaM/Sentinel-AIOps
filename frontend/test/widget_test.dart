@@ -1,30 +1,32 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:frontend/main.dart';
+import '../lib/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('dashboard shows the title and the URL scanner', (tester) async {
+    await tester.pumpWidget(const SentinelApp());
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    expect(find.text('SENTINEL AIOPS PORTFOLIO PLATFORM'), findsOneWidget);
+    expect(
+        find.text('Hybrid URL Threat & Phishing Intelligence'), findsOneWidget);
+    expect(find.text('Scan URL'), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+  testWidgets('scanner text does not promise safety', (tester) async {
+    await tester.pumpWidget(const SentinelApp());
+
+    expect(find.textContaining('not a guarantee of safety'), findsOneWidget);
+    expect(find.textContaining('SAFE'), findsNothing);
+  });
+
+  testWidgets('scanning an empty box does nothing', (tester) async {
+    await tester.pumpWidget(const SentinelApp());
+
+    await tester.tap(find.text('Scan URL'));
     await tester.pump();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.textContaining('Scan failed'), findsNothing);
   });
 }

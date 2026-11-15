@@ -138,8 +138,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           children: [
             Icon(Icons.shield_outlined, color: Colors.cyan),
             SizedBox(width: 12),
-            Text('SENTINEL AIOPS PORTFOLIO PLATFORM',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            Expanded(
+              child: Text('SENTINEL AIOPS PORTFOLIO PLATFORM',
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            ),
           ],
         ),
         actions: [
@@ -169,10 +172,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       children: [
                         Icon(Icons.link, color: Colors.cyanAccent),
                         SizedBox(width: 8),
-                        Text(
-                          'Hybrid URL Threat & Phishing Intelligence',
-                          style: TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold),
+                        Expanded(
+                          child: Text(
+                            'Hybrid URL Threat & Phishing Intelligence',
+                            style: TextStyle(
+                                fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
                         ),
                       ],
                     ),
