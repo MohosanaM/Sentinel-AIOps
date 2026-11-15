@@ -40,3 +40,29 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze --no-fatal-infos
       - run: flutter test
+
+  docker:
+    name: Docker image builds and serves
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t sentinel-backend ./backend
+      - name: Start container and wait for the API
+        run: |
+          docker run -d --name sentinel -p 5000:5000 sentinel-backend
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:5000/api/health | grep -Eq '"ready": ?true'; then
+              echo "API is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs sentinel
+          exit 1
+      - name: Smoke-test the URL scanner
+        run: |
+          curl -fsS -X POST http://localhost:5000/api/scan-url \
+            -H 'Content-Type: application/json' \
+            -d '{"url": "http://192.168.1.5/login@secure-update.tk/verify"}' \
+            | grep -Eq '"is_suspicious": ?true'

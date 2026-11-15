@@ -1,0 +1,10 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "5000:5000"
+    environment:
+      # Read from your shell or from a .env file in this folder (never committed).
+      URLHAUS_API_KEY: ${URLHAUS_API_KEY:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+    restart: unless-stopped
