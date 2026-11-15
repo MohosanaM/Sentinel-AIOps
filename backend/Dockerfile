@@ -1,3 +1,12 @@
+# Stage 1: Build Flutter web inside Docker
+FROM ghcr.io/cirruslabs/flutter:stable AS flutter-build
+WORKDIR /app/frontend
+COPY frontend/pubspec.* ./
+RUN flutter pub get
+COPY frontend/ .
+RUN flutter build web --release
+
+# Stage 2: Run Python backend + serve Flutter
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -6,21 +15,22 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Dependencies first, so this layer is cached until requirements.txt changes.
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Only what the API needs at runtime: no datasets, tests or .env files.
-COPY schema.py url_analyzer.py sentinel_bridge.py ./
-COPY sentinel_model.joblib replay_sample.csv.gz ./
+# Copy everything in backend/ (scripts, data, any models that exist)
+COPY backend/ ./
+
+# Train the model during build if sentinel_model.joblib wasn't in Git
+RUN if [ ! -f sentinel_model.joblib ] && [ -f train.py ]; then python train.py; fi
+RUN if [ -f train_url.py ]; then python train_url.py || true; fi
+
+# Copy built Flutter web files into ./static
+COPY --from=flutter-build /app/frontend/build/web ./static
 
 RUN useradd --create-home appuser
 USER appuser
 
 EXPOSE 5000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=40s \
-  CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('PORT', '5000') + '/api/health')"
-
-# One worker: incidents and the blocklist are kept in memory.
 CMD ["sh", "-c", "gunicorn -w 1 --threads 4 --timeout 60 -b 0.0.0.0:${PORT} sentinel_bridge:app"]
