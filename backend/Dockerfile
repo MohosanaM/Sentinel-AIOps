@@ -18,9 +18,14 @@ WORKDIR /app
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY backend/schema.py backend/url_analyzer.py backend/sentinel_bridge.py ./
-COPY backend/sentinel_model.joblib backend/replay_sample.csv.gz ./
+# Copy everything in backend/ (scripts, data, any models that exist)
+COPY backend/ ./
 
+# Train the model during build if sentinel_model.joblib wasn't in Git
+RUN if [ ! -f sentinel_model.joblib ] && [ -f train.py ]; then python train.py; fi
+RUN if [ -f train_url.py ]; then python train_url.py || true; fi
+
+# Copy built Flutter web files into ./static
 COPY --from=flutter-build /app/frontend/build/web ./static
 
 RUN useradd --create-home appuser
