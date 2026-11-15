@@ -36,7 +36,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final String _baseUrl = const String.fromEnvironment('API_BASE',
-      defaultValue: 'http://127.0.0.1:5000');
+      defaultValue: 'https://sentinel-aiops-0rik.onrender.com');
   bool _loading = false;
   Map<String, dynamic>? _dashboardData;
   String? _error;
